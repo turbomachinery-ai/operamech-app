@@ -122,10 +122,19 @@ export async function registerRoutes(server: Server, app: Express) {
       }
       conversationMessages.push({ role: "user", content: userContent });
 
+      // Split system into two blocks so the large knowledge base can be cached.
+      // Cached tokens cost ~90% less after the first request (5-minute TTL, auto-refreshed).
       const response = await client.messages.create({
-        model: "claude_sonnet_4_6",
+        model: "claude-sonnet-4-5",
         max_tokens: 4096,
-        system: SYSTEM_PROMPT + KNOWLEDGE_BASE,
+        system: [
+          { type: "text", text: SYSTEM_PROMPT },
+          {
+            type: "text",
+            text: KNOWLEDGE_BASE,
+            cache_control: { type: "ephemeral" },
+          },
+        ] as any,
         messages: conversationMessages,
       });
 
@@ -137,7 +146,14 @@ export async function registerRoutes(server: Server, app: Express) {
 
       res.json({ response: textContent });
     } catch (error: any) {
-      console.error("Chat error:", error);
+      // Log full error so failures surface in Render logs for debugging.
+      console.error("Chat error:", {
+        name: error?.name,
+        status: error?.status,
+        message: error?.message,
+        type: error?.error?.type,
+        detail: error?.error?.error?.message,
+      });
       res.status(500).json({ 
         error: "Failed to process request",
         response: "<p>I apologize, but I encountered an error processing your request. Please try again or contact <a href='mailto:hello@turbomachinery.ai'>hello@turbomachinery.ai</a> for assistance.</p>"
